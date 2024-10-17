@@ -3,107 +3,83 @@ Option Explicit
 ' 需要引用 Microsoft Scripting Runtime
 ' 需要导入 VBA-JSON 库 (https://github.com/VBA-tools/VBA-JSON)
 
-Public Function ReadAndProcessJSON(jsonString As String) As Collection
-    Dim jsonObject As Object
+Public Function ProcessAndInsertKey(ByRef dict As Object, newKey As String, newValue As String) As Object
+    Dim processedDict As Object
     Dim key As Variant
-    Dim orderedKeys As Collection
-    Dim processedKeys As Collection
-    Dim i As Long
     Dim keyParts() As String
-    Dim keyNumber As String
+    Dim newKeyNumber As Long
+    Dim prevKeyNumber As Long
+    Dim nextKeyNumber As Long
+    Dim inserted As Boolean
     
-    ' 解析 JSON
-    Set jsonObject = JsonConverter.ParseJson(jsonString)
+    Set processedDict = CreateObject("Scripting.Dictionary")
     
-    ' 初始化集合
-    Set orderedKeys = New Collection
-    Set processedKeys = New Collection
+    ' 解析新键的数字部分
+    keyParts = Split(newKey, "_")
+    If UBound(keyParts) >= 2 Then
+        newKeyNumber = CLng(keyParts(1))
+    Else
+        Err.Raise 5, , "新键格式不正确"
+    End If
     
-    ' 收集所有符合格式的键
-    For Each key In jsonObject.Keys
+    inserted = False
+    prevKeyNumber = -1 ' 初始化为一个不可能的值
+    
+    ' 遍历原字典，保持原有顺序，并在适当位置插入新键
+    For Each key In dict.Keys
         If Left(key, 3) = "pl_" Then
             keyParts = Split(key, "_")
             If UBound(keyParts) >= 2 Then
-                keyNumber = keyParts(1)
-                ' 使用 keyNumber 作为 key 来保持排序
-                On Error Resume Next
-                orderedKeys.Add key, keyNumber
-                On Error GoTo 0
+                nextKeyNumber = CLng(keyParts(1))
+                
+                ' 检查是否应该在这里插入新键
+                If Not inserted And prevKeyNumber < newKeyNumber And newKeyNumber < nextKeyNumber Then
+                    processedDict.Add newKey, JsonConverter.ParseJson(newValue)
+                    inserted = True
+                End If
+                
+                prevKeyNumber = nextKeyNumber
             End If
+        End If
+        
+        ' 添加原有的键值对
+        If IsObject(dict(key)) Then
+            Set processedDict(key) = dict(key)
+        Else
+            processedDict(key) = dict(key)
         End If
     Next key
     
-    ' 对 orderedKeys 进行排序
-    Set processedKeys = SortCollection(orderedKeys)
-    
-    Set ReadAndProcessJSON = processedKeys
-End Function
-
-Private Function SortCollection(col As Collection) As Collection
-    Dim arr() As String
-    Dim i As Long, j As Long
-    Dim temp As String
-    Dim sortedCol As Collection
-    
-    ' 将集合转换为数组
-    ReDim arr(1 To col.Count)
-    For i = 1 To col.Count
-        arr(i) = col(i)
-    Next i
-    
-    ' 冒泡排序
-    For i = LBound(arr) To UBound(arr) - 1
-        For j = i + 1 To UBound(arr)
-            If CompareKeys(arr(i), arr(j)) > 0 Then
-                temp = arr(i)
-                arr(i) = arr(j)
-                arr(j) = temp
-            End If
-        Next j
-    Next i
-    
-    ' 创建新的已排序集合
-    Set sortedCol = New Collection
-    For i = LBound(arr) To UBound(arr)
-        sortedCol.Add arr(i)
-    Next i
-    
-    Set SortCollection = sortedCol
-End Function
-
-Private Function CompareKeys(key1 As String, key2 As String) As Integer
-    Dim parts1() As String, parts2() As String
-    Dim num1 As String, num2 As String
-    
-    parts1 = Split(key1, "_")
-    parts2 = Split(key2, "_")
-    
-    num1 = parts1(1)
-    num2 = parts2(1)
-    
-    ' 比较数字部分（考虑前导零）
-    If CLng(num1) < CLng(num2) Then
-        CompareKeys = -1
-    ElseIf CLng(num1) > CLng(num2) Then
-        CompareKeys = 1
-    Else
-        ' 如果数字相同，按字母顺序比较
-        CompareKeys = StrComp(key1, key2, vbTextCompare)
+    ' 如果新键比所有现有键都大，则在最后插入
+    If Not inserted Then
+        processedDict.Add newKey, JsonConverter.ParseJson(newValue)
     End If
+    
+    Set ProcessAndInsertKey = processedDict
 End Function
 
-Sub TestJSONProcessing()
-    Dim jsonString As String
-    Dim processedKeys As Collection
+Sub TestDictionaryProcessing()
+    Dim originalDict As Object
+    Dim processedDict As Object
     Dim key As Variant
     
-    ' 示例 JSON 字符串
-    jsonString = "{""pl_0071_a"": ""value1"", ""pl_0100_b"": ""value2"", ""pl_0080_c"": ""value3"", ""other_key"": ""other_value""}"
+    ' 创建原始字典
+    Set originalDict = CreateObject("Scripting.Dictionary")
+    originalDict.Add "pl_0071_a", "value1"
+    originalDict.Add "pl_0100_b", "value2"
+    originalDict.Add "other_key", "other_value"
     
-    Set processedKeys = ReadAndProcessJSON(jsonString)
+    ' 新键和值
+    Dim newKey As String
+    Dim newValue As String
+    newKey = "pl_0080_c"
+    newValue = "{""a"": ""b""}"
     
-    ' 输出处理后的键
-    For Each key In processedKeys
-        Debug.Print key
+    ' 处理字典并插入新键
+    Set processedDict = ProcessAndInsertKey(originalDict, newKey, newValue)
+    
+    ' 输出处理后的字典
+    For Each key In processedDict.Keys
+        Debug.Print key & ": " & JsonConverter.ConvertToJson(processedDict(key))
     Next key
 End Sub
